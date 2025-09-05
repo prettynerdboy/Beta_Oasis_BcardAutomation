@@ -31,6 +31,21 @@ class BusinessCardProcessor {
   private readonly BUSINESS_CARD_FOLDER_ID = '1Q29bAIoQ__PADA2NefymTpsOO_yAg9ee';
   private readonly PROCESSED_FOLDER_ID = '16LAj4yAM2cyk-tUlY7WYFTkbmB5Krvjx';
   private readonly SHEET_NAME = '名刺情報';
+  
+  private readonly COMPANY_PREFIXES = [
+    'カブシキガイシャ', 'カブシキカイシャ', 'ユウゲンガイシャ', 'ユウゲンカイシャ',
+    'ゴウドウガイシャ', 'ゴウドウカイシャ', 'ゴウシガイシャ', 'ゴウシカイシャ',
+    'ゴウメイガイシャ', 'ゴウメイカイシャ', 'イッパンシャダンホウジン',
+    'コウエキシャダンホウジン', 'イッパンザイダンホウジン', 'コウエキザイダンホウジン',
+    'トクテイヒエイリカツドウホウジン', 'エヌピーオーホウジン'
+  ];
+  
+  private readonly COMPANY_SUFFIXES = [
+    'カブシキガイシャ', 'カブシキカイシャ', 'ユウゲンガイシャ', 'ユウゲンカイシャ',
+    'ゴウドウガイシャ', 'ゴウドウカイシャ', 'ゴウシガイシャ', 'ゴウシカイシャ',
+    'ゴウメイガイシャ', 'ゴウメイカイシャ', 'コーポレーション', 'カンパニー',
+    'リミテッド', 'インク', 'エルエルシー'
+  ];
 
   constructor() {
     this.ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -46,6 +61,33 @@ class BusinessCardProcessor {
     
     this.sheets = google.sheets({ version: 'v4', auth });
     this.drive = google.drive({ version: 'v3', auth });
+  }
+
+  private removeCompanyPrefixSuffix(furigana: string | undefined): string | undefined {
+    if (!furigana) return furigana;
+    
+    let result = furigana;
+    
+    // 前方の法人格を除去
+    for (const prefix of this.COMPANY_PREFIXES) {
+      if (result.startsWith(prefix)) {
+        result = result.slice(prefix.length).trim();
+        break;
+      }
+    }
+    
+    // 後方の法人格を除去
+    for (const suffix of this.COMPANY_SUFFIXES) {
+      if (result.endsWith(suffix)) {
+        result = result.slice(0, -suffix.length).trim();
+        break;
+      }
+    }
+    
+    // スペースや中点の調整
+    result = result.replace(/^[\s・]+|[\s・]+$/g, '');
+    
+    return result;
   }
 
   async initializeSheet(spreadsheetId: string): Promise<void> {
@@ -236,6 +278,11 @@ class BusinessCardProcessor {
       
       const cleanText = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       const parsedData = JSON.parse(cleanText);
+      
+      // 会社名フリガナから法人格を除去
+      if (parsedData.companyFurigana) {
+        parsedData.companyFurigana = this.removeCompanyPrefixSuffix(parsedData.companyFurigana);
+      }
       
       return {
         fileId,
