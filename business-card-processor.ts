@@ -32,19 +32,39 @@ class BusinessCardProcessor {
   private readonly PROCESSED_FOLDER_ID = '16LAj4yAM2cyk-tUlY7WYFTkbmB5Krvjx';
   private readonly SHEET_NAME = '名刺情報';
   
-  private readonly COMPANY_PREFIXES = [
-    'カブシキガイシャ', 'カブシキカイシャ', 'ユウゲンガイシャ', 'ユウゲンカイシャ',
-    'ゴウドウガイシャ', 'ゴウドウカイシャ', 'ゴウシガイシャ', 'ゴウシカイシャ',
-    'ゴウメイガイシャ', 'ゴウメイカイシャ', 'イッパンシャダンホウジン',
-    'コウエキシャダンホウジン', 'イッパンザイダンホウジン', 'コウエキザイダンホウジン',
-    'トクテイヒエイリカツドウホウジン', 'エヌピーオーホウジン'
-  ];
-  
-  private readonly COMPANY_SUFFIXES = [
-    'カブシキガイシャ', 'カブシキカイシャ', 'ユウゲンガイシャ', 'ユウゲンカイシャ',
-    'ゴウドウガイシャ', 'ゴウドウカイシャ', 'ゴウシガイシャ', 'ゴウシカイシャ',
-    'ゴウメイガイシャ', 'ゴウメイカイシャ', 'コーポレーション', 'カンパニー',
-    'リミテッド', 'インク', 'エルエルシー'
+  private readonly LEGAL_FORMS = [
+    // 漢字表記
+    { pattern: '株式会社', furigana: 'カブシキガイシャ' },
+    { pattern: '有限会社', furigana: 'ユウゲンガイシャ' },
+    { pattern: '合同会社', furigana: 'ゴウドウガイシャ' },
+    { pattern: '合資会社', furigana: 'ゴウシガイシャ' },
+    { pattern: '合名会社', furigana: 'ゴウメイガイシャ' },
+    { pattern: '一般社団法人', furigana: 'イッパンシャダンホウジン' },
+    { pattern: '公益社団法人', furigana: 'コウエキシャダンホウジン' },
+    { pattern: '一般財団法人', furigana: 'イッパンザイダンホウジン' },
+    { pattern: '公益財団法人', furigana: 'コウエキザイダンホウジン' },
+    { pattern: '特定非営利活動法人', furigana: 'トクテイヒエイリカツドウホウジン' },
+    { pattern: 'NPO法人', furigana: 'エヌピーオーホウジン' },
+    // 省略表記
+    { pattern: '（株）', furigana: 'カブシキガイシャ' },
+    { pattern: '(株)', furigana: 'カブシキガイシャ' },
+    { pattern: '（有）', furigana: 'ユウゲンガイシャ' },
+    { pattern: '(有)', furigana: 'ユウゲンガイシャ' },
+    { pattern: '（同）', furigana: 'ゴウドウガイシャ' },
+    { pattern: '(同)', furigana: 'ゴウドウガイシャ' },
+    { pattern: '（資）', furigana: 'ゴウシガイシャ' },
+    { pattern: '(資)', furigana: 'ゴウシガイシャ' },
+    { pattern: '（名）', furigana: 'ゴウメイガイシャ' },
+    { pattern: '(名)', furigana: 'ゴウメイガイシャ' },
+    // 英語表記
+    { pattern: 'Corporation', furigana: 'コーポレーション' },
+    { pattern: 'Corp.', furigana: 'コーポレーション' },
+    { pattern: 'Company', furigana: 'カンパニー' },
+    { pattern: 'Co.', furigana: 'カンパニー' },
+    { pattern: 'Limited', furigana: 'リミテッド' },
+    { pattern: 'Ltd.', furigana: 'リミテッド' },
+    { pattern: 'Inc.', furigana: 'インク' },
+    { pattern: 'LLC', furigana: 'エルエルシー' }
   ];
 
   constructor() {
@@ -63,29 +83,78 @@ class BusinessCardProcessor {
     this.drive = google.drive({ version: 'v3', auth });
   }
 
-  private removeCompanyPrefixSuffix(furigana: string | undefined): string | undefined {
-    if (!furigana) return furigana;
+  private normalizeCompanyName(companyName: string): string {
+    // 会社名を正規化（重複チェック用）
+    return companyName
+      .replace(/[　 ]+/g, '') // 全角・半角スペースを除去
+      .replace(/[・・·]/g, '') // 中点を除去
+      .replace(/[（）()]/g, '') // カッコを除去
+      .replace(/株式会社|有限会社|合同会社|合資会社|合名会社/g, '') // 法人格を除去
+      .replace(/（株）|（有）|（同）|（資）|（名）/g, '') // 省略法人格を除去
+      .replace(/\(株\)|\(有\)|\(同\)|\(資\)|\(名\)/g, '') // 省略法人格（半角カッコ）を除去
+      .toUpperCase() // 大文字に統一
+      .trim();
+  }
+
+  private removeCompanyLegalForm(companyName: string | undefined, companyFurigana: string | undefined): string | undefined {
+    if (!companyFurigana || !companyName) return companyFurigana;
     
-    let result = furigana;
+    // 漢字の会社名から法人格を検出
+    let detectedLegalForm = null;
+    let legalFormPosition = 'none'; // 'prefix', 'suffix', 'none'
     
-    // 前方の法人格を除去
-    for (const prefix of this.COMPANY_PREFIXES) {
-      if (result.startsWith(prefix)) {
-        result = result.slice(prefix.length).trim();
+    for (const legalForm of this.LEGAL_FORMS) {
+      // 前方にあるかチェック
+      if (companyName.startsWith(legalForm.pattern)) {
+        detectedLegalForm = legalForm;
+        legalFormPosition = 'prefix';
+        break;
+      }
+      // 後方にあるかチェック
+      if (companyName.endsWith(legalForm.pattern)) {
+        detectedLegalForm = legalForm;
+        legalFormPosition = 'suffix';
         break;
       }
     }
     
-    // 後方の法人格を除去
-    for (const suffix of this.COMPANY_SUFFIXES) {
-      if (result.endsWith(suffix)) {
-        result = result.slice(0, -suffix.length).trim();
-        break;
+    if (!detectedLegalForm) {
+      return companyFurigana;
+    }
+    
+    let result = companyFurigana;
+    
+    // 検出された法人格のフリガナを除去
+    if (legalFormPosition === 'prefix') {
+      // 前方から除去
+      const variations = [
+        detectedLegalForm.furigana,
+        detectedLegalForm.furigana.replace(/ガイシャ/, 'カイシャ')
+      ];
+      
+      for (const variation of variations) {
+        if (result.startsWith(variation)) {
+          result = result.slice(variation.length);
+          break;
+        }
+      }
+    } else if (legalFormPosition === 'suffix') {
+      // 後方から除去
+      const variations = [
+        detectedLegalForm.furigana,
+        detectedLegalForm.furigana.replace(/ガイシャ/, 'カイシャ')
+      ];
+      
+      for (const variation of variations) {
+        if (result.endsWith(variation)) {
+          result = result.slice(0, -variation.length);
+          break;
+        }
       }
     }
     
-    // スペースや中点の調整
-    result = result.replace(/^[\s・]+|[\s・]+$/g, '');
+    // スペース、中点、カッコの調整
+    result = result.replace(/^[\s・・（）()]+|[\s・・（）()]+$/g, '').trim();
     
     return result;
   }
@@ -174,7 +243,7 @@ class BusinessCardProcessor {
     }
   }
 
-  async getExistingData(spreadsheetId: string): Promise<{name: string, companyName: string}[]> {
+  async getExistingData(spreadsheetId: string): Promise<{name: string, companyName: string, originalCompanyName: string}[]> {
     try {
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId,
@@ -182,10 +251,14 @@ class BusinessCardProcessor {
       });
 
       const values = response.data.values || [];
-      return values.slice(1).map((row: string[]) => ({
-        name: (row[0] || '').trim(),
-        companyName: (row[2] || '').trim()
-      }));
+      return values.slice(1).map((row: string[]) => {
+        const originalCompanyName = (row[2] || '').trim();
+        return {
+          name: (row[0] || '').trim(),
+          companyName: this.normalizeCompanyName(originalCompanyName),
+          originalCompanyName: originalCompanyName
+        };
+      });
     } catch (error) {
       console.error('既存データ取得エラー:', error);
       return [];
@@ -197,6 +270,7 @@ class BusinessCardProcessor {
       const existingData = await this.getExistingData(spreadsheetId);
       const newName = (data.name || '').trim();
       const newCompanyName = (data.companyName || '').trim();
+      const normalizedNewCompanyName = this.normalizeCompanyName(newCompanyName);
 
       // 名前が空の場合は重複チェックをスキップ
       if (!newName) {
@@ -209,8 +283,14 @@ class BusinessCardProcessor {
         return false;
       }
 
-      // 名前が一致した場合のみ会社名をチェック
-      return nameMatch.companyName === newCompanyName;
+      // 名前が一致した場合のみ会社名をチェック（正規化して比較）
+      const isDuplicate = nameMatch.companyName === normalizedNewCompanyName;
+      
+      if (isDuplicate) {
+        console.log(`重複検出: 名前="${newName}", 新会社名="${newCompanyName}" (正規化: "${normalizedNewCompanyName}"), 既存会社名="${nameMatch.originalCompanyName}" (正規化: "${nameMatch.companyName}")`);
+      }
+      
+      return isDuplicate;
     } catch (error) {
       console.error('重複チェックエラー:', error);
       return false;
@@ -280,8 +360,8 @@ class BusinessCardProcessor {
       const parsedData = JSON.parse(cleanText);
       
       // 会社名フリガナから法人格を除去
-      if (parsedData.companyFurigana) {
-        parsedData.companyFurigana = this.removeCompanyPrefixSuffix(parsedData.companyFurigana);
+      if (parsedData.companyFurigana && parsedData.companyName) {
+        parsedData.companyFurigana = this.removeCompanyLegalForm(parsedData.companyName, parsedData.companyFurigana);
       }
       
       return {
