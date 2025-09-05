@@ -17,6 +17,9 @@ interface BusinessCardData {
   postalCode?: string;
   address?: string;
   email?: string;
+  companyPhone?: string;
+  personalPhone?: string;
+  fax?: string;
 }
 
 class BusinessCardProcessor {
@@ -80,12 +83,13 @@ class BusinessCardProcessor {
       // ヘッダーを設定
       const headers = [
         'ファイルid', '名前', 'フリガナ', '社名', '社名フリガナ', 
-        '部署', '肩書', '郵便番号', '住所', 'メールアドレス'
+        '部署', '肩書', '郵便番号', '住所', 'メールアドレス',
+        '会社電話番号', '個人電話番号', 'FAX'
       ];
 
       await this.sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `'${this.SHEET_NAME}'!A1:J1`,
+        range: `'${this.SHEET_NAME}'!A1:M1`,
         valueInputOption: 'RAW',
         resource: {
           values: [headers]
@@ -213,6 +217,15 @@ class BusinessCardProcessor {
 - postalCode: 郵便番号
 - address: 住所
 - email: メールアドレス
+- companyPhone: 会社電話番号（代表番号やTEL、会社名の近くにある番号）
+- personalPhone: 個人電話番号（携帯、直通、Mobile、個人名の近くにある番号）
+- fax: FAX番号
+
+電話番号について：
+- 複数の電話番号がある場合は、会社の代表番号と個人の番号を区別してください
+- 「TEL」「代表」などの表記がある場合はcompanyPhoneに、「携帯」「Mobile」「直通」などの表記がある場合はpersonalPhoneに分類してください
+- 電話番号が1つしかない場合は、文脈から判断して適切な方に分類してください（会社名の近くならcompanyPhone、個人名の近くならpersonalPhone）
+- 判断が難しい場合は、companyPhoneとして扱ってください
 
 フリガナは必ずカタカナ（例：タナカ タロウ、カブシキガイシャ サンプル）で出力してください。
 存在しない項目は出力しないでください。JSONのみを返してください。`;
@@ -246,12 +259,15 @@ class BusinessCardProcessor {
         data.position || '',
         data.postalCode || '',
         data.address || '',
-        data.email || ''
+        data.email || '',
+        data.companyPhone || '',
+        data.personalPhone || '',
+        data.fax || ''
       ];
 
       await this.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `'${this.SHEET_NAME}'!A:J`,
+        range: `'${this.SHEET_NAME}'!A:M`,
         valueInputOption: 'RAW',
         resource: {
           values: [values]
